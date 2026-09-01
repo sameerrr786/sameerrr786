@@ -80,24 +80,25 @@ Source file: `ADNI_UCSFFSX7_Based_Future_Labeled_Dataset.csv`
 - Patients with only 1 visit: 953
 
 ## 10. Additional checks
-- `FUTURE_ALZHEIMER` and `FUTURE_ALZHEIMER_LABEL` are identical on every row (redundant columns; keep one as the target, drop the other).
+- `FUTURE_ALZHEIMER` and `FUTURE_ALZHEIMER_LABEL` identical on every row: True (redundant columns; keep one as the target, drop the other)
 - `DXAD` vs `DIAGNOSIS` cross-tab:
 
-  | DXAD \\ DIAGNOSIS | 1 (CN) | 2 (MCI) | 3 (AD) | NaN |
-  |---|---|---|---|---|
-  | -4 | 992 | 1254 | 2 | 0 |
-  | 0 | 2808 | 2691 | 1019 | 2768 |
-  | 1 | 0 | 0 | 960 | 0 |
+  ```
+  DIAGNOSIS   1.0   2.0   3.0   NaN
+  DXAD                             
+  -4          992  1254     2     0
+   0         2808  2691  1019  2768
+   1            0     0   960     0
+  ```
 
-  `DXAD=1` lines up exactly with `DIAGNOSIS=3` (current-visit AD) in 960 rows, so `DXAD=1` looks like "diagnosed AD at this visit." `DXAD=-4` looks like a sentinel ("not applicable"/not tracked) rather than a real 0/1 value, and it does not cleanly separate by `DIAGNOSIS`. **Do not guess further** - the exact coding of `DXAD`, `DXNORM`, `DXMCI`, `ALZHEIMER_LABEL`, `-4` sentinels, and how `FUTURE_ALZHEIMER` / `FUTURE_ALZHEIMER_LABEL` were actually derived (window logic, censoring rule) needs to be confirmed against the ADNI data dictionary / whatever script produced this "Future_Labeled" file, before it is trusted as the modeling target.
+  Do not guess further - the exact coding of `DXAD`, `DXNORM`, `DXMCI`, `ALZHEIMER_LABEL`, `-4` sentinels, and how `FUTURE_ALZHEIMER` / `FUTURE_ALZHEIMER_LABEL` were actually derived (window logic, censoring rule) needs to be confirmed against the ADNI data dictionary / whatever script produced this "Future_Labeled" file, before it is trusted as the modeling target.
 
 ## 11. Flags to resolve before Step 2 (cleaning)
-
-1. **Unnamed: 5** - a stray blank column from the source export. Drop it.
+1. **`Unnamed: 5`** - stray blank column(s) from the source export. Drop it.
 2. **861 duplicate (RID, EXAMDATE) pairs / 988 duplicate (RID, VISCODE) pairs** - not full row duplicates, so these are either genuinely repeated exams or multiple source tables merged per visit. Needs a dedup rule, not a blind `drop_duplicates()`.
 3. **VISDATE is 73% missing**; where both `EXAMDATE` and `VISDATE` are present they disagree 82% of the time (2,739/3,331). Recommend treating `EXAMDATE` as the canonical visit date and dropping/ignoring `VISDATE`, but this should be a deliberate decision, not a default.
-4. **VISCODE has 30 distinct codes, VISCODE2 has 43** (including phase-prefixed codes like `4_init`, `4_sc`, `4_m12`), reflecting ADNI1/GO/2/3 phase changes. These need to be harmonized into a single visit-order scheme before building per-patient sequences, since the same relative timepoint is coded differently across phases.
-5. **`ST68SV`** is the one ST* column over the 50% missingness threshold (90.8% missing) - confirms the 186 -> 185 drop.
-6. **`PTGENDER` / `PTEDUCAT` are 74% missing** despite being static demographics - almost certainly only populated on one row per patient (e.g. baseline) in this export and need to be forward/backward-filled per RID rather than treated as missing-at-random.
+4. **VISCODE has 30 distinct codes, VISCODE2 has 43** (including phase-prefixed codes like ['4_init', '4_m12', '4_m24', '4_sc']), reflecting ADNI1/GO/2/3 phase changes. These need to be harmonized into a single visit-order scheme before building per-patient sequences, since the same relative timepoint is coded differently across phases.
+5. **`ST68SV`** is the ST* column over the 50% missingness threshold (90.8% missing) - confirms the 186 -> 185 drop.
+6. **`PTGENDER` is 74% missing** despite being a static demographic - almost certainly only populated on one row per patient (e.g. baseline) in this export and needs to be forward/backward-filled per RID rather than treated as missing-at-random.
 7. **`FIRST_AD_DATE` / `DAYS_TO_FIRST_AD`** are present on 14.9% of rows and are explicitly future-derived (used to build the label). These must be excluded from model input features entirely (Section 24 of the spec) - keep them only in the label-construction step, never in the feature matrix.
 8. **953 / 3,179 patients (30%) have only 1 visit.** Since NeuroProgress needs longitudinal history (>=2 visits to compute deltas/rates), single-visit patients cannot be used for the longitudinal models (Models 2-4) and need an explicit inclusion/exclusion decision - likely usable only for Model 1 (Clinical MLP, cross-sectional).
